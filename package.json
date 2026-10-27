@@ -1,0 +1,14 @@
+{
+  "name": "bytefuse-voice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Private Gemini TTS MCP endpoint for ByteFuse Lab",
+  "engines": {"node": ">=20"},
+  "scripts": {"start": "node server.js"},
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "express": "^4.21.2",
+    "zod": "^3.24.2"
+  }
+}
