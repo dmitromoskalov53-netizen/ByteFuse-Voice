@@ -99,7 +99,11 @@ function createServer(req) {
       return {isError:true,content:[{type:'text',text:`Gemini returned HTTP ${response.status}: ${clean}`}]};
     }
     const result = await response.json();
-   const base64 = result.output_audio?.data;
+   const base64 = (result.steps ?? [])
+  .filter(step => step.type === 'model_output')
+  .flatMap(step => step.content ?? [])
+  .filter(part => part.type === 'audio' && typeof part.data === 'string')
+  .at(-1)?.data ?? result.output_audio?.data;
     if (!base64) return {isError:true,content:[{type:'text',text:'Gemini response did not contain an audio block.'}]};
     const buffer = Buffer.from(base64,'base64');
     if (buffer.length > 18_000_000 || buffer.subarray(0,4).toString() !== 'RIFF') {
