@@ -35,3 +35,5 @@ with f.open("w") as m:
  m.write(f"file '{(p/'slide_07.png').resolve()}'\n")
 subprocess.run(["ffmpeg","-y","-hide_banner","-loglevel","error","-safe","0","-f","concat","-i",str(f),"-i",str(p/"voice.mp3"),"-vf","fps=30,format=yuv420p","-c:v","libx264","-preset","veryfast","-crf","20","-c:a","aac","-b:a","192k","-af","loudnorm=I=-16:TP=-1.5:LRA=11","-t",str(duration),"-movflags","+faststart",str(p/"ByteFuse_Lab_Short_03_FINAL.mp4")],check=True)
 print("Rendered video, duration",round(duration,2))
+
+# Automatic render setup.
