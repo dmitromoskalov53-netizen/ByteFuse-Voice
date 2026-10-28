@@ -1,6 +1,11 @@
 name: ByteFuse Short 03
 on:
   workflow_dispatch:
+    inputs:
+      voiceover_url:
+        description: 'Temporary vidIQ MP3 URL (expires after 12 hours)'
+        required: true
+        type: string
 jobs:
   render:
     runs-on: ubuntu-latest
@@ -13,9 +18,8 @@ jobs:
           sudo apt-get install -y ffmpeg python3-pil
       - name: Render Short 03
         env:
-          VOICEOVER_URL: ${{ secrets.BYTEFUSE_SHORT03_MP3_URL }}
+          VOICEOVER_URL: ${{ inputs.voiceover_url }}
         run: |
-          test -n "$VOICEOVER_URL" || (echo "Set BYTEFUSE_SHORT03_MP3_URL in Actions secrets" && exit 1)
           /usr/bin/python3 shorts/short03.py
       - name: Upload completed MP4
         uses: actions/upload-artifact@v4
