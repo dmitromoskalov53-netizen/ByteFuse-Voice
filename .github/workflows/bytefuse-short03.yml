@@ -1,0 +1,25 @@
+name: ByteFuse Short 03
+on:
+  workflow_dispatch:
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FFmpeg and Pillow
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg python3-pil
+      - name: Render Short 03
+        env:
+          VOICEOVER_URL: ${{ secrets.BYTEFUSE_SHORT03_MP3_URL }}
+        run: |
+          test -n "$VOICEOVER_URL" || (echo "Set BYTEFUSE_SHORT03_MP3_URL in Actions secrets" && exit 1)
+          /usr/bin/python3 shorts/short03.py
+      - name: Upload completed MP4
+        uses: actions/upload-artifact@v4
+        with:
+          name: ByteFuse-Lab-Short-03-FINAL
+          path: output/ByteFuse_Lab_Short_03_FINAL.mp4
+          retention-days: 7
