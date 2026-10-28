@@ -195,3 +195,6 @@ app.get('/vidiq-03.mp3', async (req,res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`ByteFuse Voice listening on ${PORT}`));
+
+// Prefetch on boot so we can verify S3 access in Render logs without user interaction.
+getShort03().then(buf => console.log('ByteFuse short03 prefetch ready, bytes:',buf.length)).catch(err => console.error('ByteFuse short03 prefetch failed:',err.message));
