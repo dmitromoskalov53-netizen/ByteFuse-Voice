@@ -140,4 +140,58 @@ app.post('/mcp', async (req,res) => {
 app.get('/mcp', (_req,res)=>res.status(405).json({error:'post_only'}));
 app.delete('/mcp', (_req,res)=>res.status(405).json({error:'stateless_only'}));
 
+
+/* ByteFuse Short 03: retrieve existing paid vidIQ narration without re-generating it.
+   The signed S3 URL is stored only in Render's environment, not in Git history. */
+let short03Buffer = null;
+async function getShort03() {
+  if (short03Buffer) return short03Buffer;
+  const url = process.env.VIDIQ_SHORT03_URL;
+  if (!url) throw new Error('vidiq_audio_url_not_configured');
+  const target = new URL(url);
+  if (target.hostname !== 'ai-voiceovers.s3.us-east-1.amazonaws.com' ||
+      target.pathname !== '/8733ba47-390c-4c2a-aac4-b2eddc7b6f58/e4abe642-02ee-4bdf-aa16-9438b6467a5d.mp3') {
+    throw new Error('vidiq_audio_url_not_allowed');
+  }
+  const upstream = await fetch(url, {signal: AbortSignal.timeout(20000)});
+  if (!upstream.ok) {
+    const error = (await upstream.text()).slice(0,700).replace(/<[^>]+>/g,' ');
+    throw new Error('vidiq_s3_http_' + upstream.status + ': ' + error);
+  }
+  const bytes = Buffer.from(await upstream.arrayBuffer());
+  if (bytes.length < 1000 || bytes.length > 10_000_000 ||
+      !(bytes.subarray(0,3).toString() === 'ID3' || bytes[0] === 0xff)) {
+    throw new Error('vidiq_audio_not_mp3');
+  }
+  short03Buffer = bytes;
+  return bytes;
+}
+app.get('/vidiq-03-status', async (_req,res) => {
+  try {
+    const audio = await getShort03();
+    return res.json({status:'ready',bytes:audio.length,format:'mp3'});
+  } catch (error) {
+    return res.status(502).json({status:'upstream_error',reason:error.message});
+  }
+});
+app.get('/vidiq-03.mp3', async (req,res) => {
+  const key = String(req.query.key ?? '');
+  const expected = process.env.VIDIQ_SHORT03_TOKEN || '';
+  const a = Buffer.from(key); const b = Buffer.from(expected);
+  if (expected.length < 32 || a.length !== b.length || !timingSafeEqual(a,b)) return deny(res);
+  try {
+    const audio = await getShort03();
+    res.set({
+      'Content-Type':'audio/mpeg',
+      'Content-Disposition':'attachment; filename="ByteFuse_Lab_Short_03_Liam.mp3"',
+      'Content-Length':String(audio.length),
+      'Cache-Control':'private, no-store',
+      'X-Content-Type-Options':'nosniff'
+    });
+    return res.send(audio);
+  } catch (error) {
+    return res.status(502).json({error:'vidiq_audio_unavailable',reason:error.message});
+  }
+});
+
 app.listen(PORT, '0.0.0.0', () => console.log(`ByteFuse Voice listening on ${PORT}`));
