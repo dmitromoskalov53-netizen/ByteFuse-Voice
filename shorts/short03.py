@@ -2,7 +2,7 @@ import os,subprocess,urllib.request
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 u=os.environ["VOICEOVER_URL"]
-if not u.startswith("https://ai-voiceovers.s3.") or ".amazonaws.com/" not in u.split("?")[0]: raise ValueError("Expected vidIQ S3 audio URL")
+if not (u.startswith("https://ai-voiceovers.s3.us-east-1.amazonaws.com/") or u.startswith("https://bytefuse-voice.onrender.com/vidiq-03.mp3?key=")): raise ValueError("Expected vidIQ audio URL or ByteFuse recovery URL")
 p=Path("output");p.mkdir(exist_ok=True)
 with urllib.request.urlopen(urllib.request.Request(u,headers={"User-Agent":"ByteFuse/1.0"}),timeout=60) as r: data=r.read(15000001)
 if len(data)<1000 or len(data)>15000000: raise ValueError("Invalid MP3")
