@@ -202,6 +202,18 @@ app.get('/vidiq-03.mp3', async (req,res) => {
 
 app.listen(PORT, '0.0.0.0', () => console.log(`ByteFuse Voice listening on ${PORT}`));
 
+
+/* Temporary build-only audio endpoint. Removed after the Short 03 build. */
+app.get('/bytefuse-short03-build-audio.mp3', async (_req,res) => {
+  if (Date.now() > Date.parse('2026-10-28T22:15:00Z')) return res.status(410).send('expired');
+  try {
+    const audio = await getShort03();
+    res.set({'Content-Type':'audio/mpeg','Content-Length':String(audio.length),
+      'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+    return res.send(audio);
+  } catch (err) { return res.status(502).send('upstream audio unavailable'); }
+});
+
 // Prefetch on boot so we can verify S3 access in Render logs without user interaction.
 getShort03().then(buf => console.log('ByteFuse short03 prefetch ready, bytes:',buf.length)).catch(err => console.error('ByteFuse short03 prefetch failed:',err.message));
 
