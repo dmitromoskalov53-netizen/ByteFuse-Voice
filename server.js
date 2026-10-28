@@ -1,4 +1,10 @@
 import express from 'express';
+import sharp from 'sharp';
+import ffmpegPath from 'ffmpeg-static';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtemp, writeFile, stat as statFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -198,3 +204,104 @@ app.listen(PORT, '0.0.0.0', () => console.log(`ByteFuse Voice listening on ${POR
 
 // Prefetch on boot so we can verify S3 access in Render logs without user interaction.
 getShort03().then(buf => console.log('ByteFuse short03 prefetch ready, bytes:',buf.length)).catch(err => console.error('ByteFuse short03 prefetch failed:',err.message));
+
+
+/* Assemble the existing paid Liam voiceover into ByteFuse Lab Short 03.
+   Uses the cached MP3; this does not invoke vidIQ generation or charge credits. */
+const short03Video = {
+  status:'waiting', path:null, bytes:null, error:null, promise:null
+};
+const short03Slides = [
+  ['EMAIL TAKING TOO LONG?', ['Stop rewriting','the same email.']],
+  ['THE CHATGPT TRICK', ['Make any message','sound professional.']],
+  ['BEFORE', ['Hey Alex,','I need the report.','Send it today.']],
+  ['COPY THIS PROMPT', ['Rewrite this email to sound','polite, clear, and professional.','Keep it short.',"Don't change the meaning."]],
+  ['AFTER', ['Hi Alex, could you please','send me the report today?','Thanks so much for your help.']],
+  ['SAME REQUEST', ['Better tone.','Clearer message.']],
+  ['ONE MORE TRICK', ['Ask for a friendlier','or more direct version.']],
+  ['BYTEFUSE LAB', ['Save this trick.','Follow for practical AI tips.']]
+];
+function xmlText(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+}
+function short03SVG(i) {
+  const [head,lines] = short03Slides[i];
+  const body = lines.map((line,j) =>
+    '<text x="105" y="' + (660+j*108) +
+    '" font-family="DejaVu Sans, Arial, sans-serif" font-weight="600" font-size="44" fill="#eff5ff">' +
+    xmlText(line) + '</text>').join('\n');
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">' +
+    '<rect width="1080" height="1920" fill="#091223"/>' +
+    '<rect x="65" y="100" width="950" height="1715" rx="48" fill="#112038" stroke="#20637b" stroke-width="4"/>' +
+    '<text x="105" y="183" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="27" fill="#64e3eb">BYTEFUSE LAB  /  AI SHORTS</text>' +
+    '<text x="105" y="408" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="54" fill="#5be0ea">' + xmlText(head) + '</text>' +
+    body +
+    '<text x="105" y="1710" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="27" fill="#8fabc1">BYTEFUSE LAB  |  ' +
+    String(i+1).padStart(2,'0') + ' / 08</text></svg>';
+}
+async function assembleShort03() {
+  if (short03Video.promise) return short03Video.promise;
+  short03Video.promise = (async () => {
+    short03Video.status='rendering';
+    const audio = await getShort03();
+    const dir = await mkdtemp(join(tmpdir(),'bytefuse03-'));
+    const voicePath=join(dir,'voice.mp3');
+    await writeFile(voicePath,audio);
+    const ffprobe=spawnSync(ffmpegPath,['-hide_banner','-i',voicePath],{encoding:'utf8',timeout:12000});
+    const match=(ffprobe.stderr||'').match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+    const duration=match ? Number(match[1])*3600+Number(match[2])*60+Number(match[3]) : 38.844;
+    const weights=[4.5,5.8,4.2,8.2,7.8,4.3,3.6,4.2];
+    const total=weights.reduce((a,b)=>a+b,0);
+    let manifest='ffconcat version 1.0\n';
+    for(let i=0;i<short03Slides.length;i++){
+      const filename=join(dir,'slide_'+String(i).padStart(2,'0')+'.png');
+      await sharp(Buffer.from(short03SVG(i))).png().toFile(filename);
+      manifest += "file '"+filename+"'\n";
+      manifest += "duration "+(duration*weights[i]/total).toFixed(5)+"\n";
+    }
+    manifest += "file '"+join(dir,'slide_07.png')+"'\n";
+    const manifestPath=join(dir,'slides.ffconcat');
+    await writeFile(manifestPath,manifest);
+    const output=join(dir,'ByteFuse_Lab_Short_03_FINAL.mp4');
+    const args=['-y','-hide_banner','-loglevel','error','-safe','0','-f','concat',
+      '-i',manifestPath,'-i',voicePath,'-vf','fps=24,format=yuv420p',
+      '-c:v','libx264','-preset','ultrafast','-crf','24','-threads','2',
+      '-c:a','aac','-b:a','128k','-af','loudnorm=I=-16:TP=-1.5:LRA=11',
+      '-t',String(duration),'-movflags','+faststart',output];
+    await new Promise((resolve,reject)=>{
+      const proc=spawn(ffmpegPath,args,{stdio:['ignore','ignore','pipe']});
+      let err='';
+      proc.stderr.on('data',b=>{err=(err+b.toString()).slice(-2500)});
+      proc.on('error',reject);
+      proc.on('close',code=>code===0 ? resolve() : reject(new Error('ffmpeg exit '+code+': '+err)));
+    });
+    const stat=await statFile(output);
+    if(stat.size<10000)throw new Error('Rendered MP4 unexpectedly small');
+    short03Video.path=output;
+    short03Video.bytes=stat.size;
+    short03Video.status='ready';
+    console.log('ByteFuse short03 video ready, bytes:',stat.size,'duration:',duration);
+  })().catch(err=>{
+    short03Video.status='failed';
+    short03Video.error=err.message;
+    console.error('ByteFuse short03 video failed:',err.message);
+  });
+  return short03Video.promise;
+}
+app.get('/vidiq-03-video-status', (_req,res) => {
+  res.json({status:short03Video.status,bytes:short03Video.bytes,
+    error:short03Video.error,format:'mp4',resolution:'1080x1920'});
+});
+app.get('/vidiq-03-final.mp4', async (req,res) => {
+  const key=String(req.query.key??'');
+  const expected=process.env.VIDIQ_SHORT03_TOKEN||'';
+  const a=Buffer.from(key), b=Buffer.from(expected);
+  if(expected.length<32 || a.length!==b.length || !timingSafeEqual(a,b))return deny(res);
+  if(short03Video.status==='waiting')void assembleShort03();
+  if(short03Video.status!=='ready')
+    return res.status(503).json({status:short03Video.status,error:short03Video.error});
+  return res.download(short03Video.path,'ByteFuse_Lab_Short_03_FINAL.mp4');
+});
+getShort03().then(()=>assembleShort03()).catch(err=>
+  console.error('ByteFuse short03 video source unavailable:',err.message));
